@@ -37,7 +37,7 @@ The script needs to be called with the `custom` parameters, followed by those pa
   - **count** (optional) : Card countdown. If given, must be an integer between 1 and 9
 
 Each parameter must be given as `parameter=value`.
-The custom artwork will be resized with the same height or width as a Gwent artwork, then cropped to fit. If you don't want your image to be cropped, the ratio H*W of the image must be 10*7.
+The custom artwork will be resized with the same height or width as a Gwent artwork, then cropped to fit. If you don't want your image to be cropped, the Height/Width ratio of the image must be 10/7.
 The card will be generated in the `custom-images` folder with the same different sizes as Gwent cards.
 
 ### Example
