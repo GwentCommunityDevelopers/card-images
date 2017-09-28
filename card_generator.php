@@ -29,14 +29,15 @@ if (!extension_loaded('imagick')) {
 /* * ***************
  * CONFIGURATION *
  * ************** */
-const DS = DIRECTORY_SEPARATOR,
-        VERSION = 'v0-9-10', // Only important as the destination folder
+        const DS = DIRECTORY_SEPARATOR,
+        DEFAULT_VERSION = 'v0-9-10', // Only important as the destination folder
         MAX_CARDS = 5, // Maximum generated cards. 0 for no limit
         JSON_FILENAME = 'cards.json', // Current JSON filename, same folder as the script
         CARDS_FOLDER = 'images',
         CUSTOM_FOLDER = 'image-custom',
         ASSETS_FOLDER = 'assets',
-        RESIZE_FILTER = Imagick::FILTER_LANCZOS;
+        RESIZE_FILTER = Imagick::FILTER_LANCZOS,
+        DEFAULT_SIZES = 'original,high,medium,low,thumbnail';
 
 
 require_once 'vendor/autoload.php';
@@ -52,54 +53,91 @@ ob_end_flush();
 /**
  * Gwent Card Generator
  */
-class CardGenerator {
+class CardGenerator
+{
 
     private $_microtime;
     private $_cardsJson;
     private $_card;
     private $_errors;
     private $_notReleased;
+    private $_callParams;
 
-    public function __construct() {
+    public function __construct()
+    {
         set_time_limit(0);
         $this->_errors = 0;
         $this->_notReleased = 0;
         $this->_microtime = microtime(true);
+        $this->_getParameters();
     }
 
     /**
      * Start point, checking parameters for the right action
      * @global array $argv CLI-passed arguments
      */
-    public function start() {
-        global $argv;
-
-        if (PHP_SAPI == 'cli') { // command-line
-            // Check the existence of `cards` and a list of ID
-            $cardsParam = array_search('cards', $argv);
-            if (($cardsParam !== false) && (!empty($argv[$cardsParam + 1]))) {
-                // Generate some cards
-                $this->_startCardList(explode(',', $argv[$cardsParam + 1]));
-            } else if (array_search('custom', $argv) !== false) {
-                // Generate a custom card
-                $this->_generateCustomCard($argv);
-            } else {
-                // Generate all cards
-                $this->_startCardList();
-            }
-        } else { // HTTP
-            die(var_dump($_GET));
-            if (!empty($_GET['cards'])) {
-                // Generate some cards
-                $this->_startCardList(explode(',', $_GET['cards']));
-            } else if (array_key_exists('custom', $_GET) !== false) {
-                // Generate a custom card
-                $this->_generateCustomCard($_GET);
-            } else {
-                // Generate all cards
-                $this->_startCardList();
-            }
+    public function start()
+    {
+        // Check the existence of `cards` and a list of ID
+        if (!empty($this->_callParams['cards']) && $this->_callParams['cards'] !== 1) {
+            // Generate some cards
+            $this->_startCardList(explode(',', $this->_callParams['cards']));
+        } else if (isset($this->_callParams['custom'])) {
+            // Generate a custom card
+            $this->_generateCustomCard();
+        } else {
+            // Generate all cards
+            $this->_startCardList();
         }
+    }
+    
+    /**
+     * Display an output message
+     * @param type $message
+     */
+    private function _echoFlush($message)
+    {
+        echo $message;
+        if (PHP_SAPI == 'cli') {
+            echo PHP_EOL;
+        } else {
+            echo '<br>';
+        }
+        ob_flush();
+    }
+    
+    /**
+     * Get call parameters and store it
+     * @global array $argv
+     */
+    private function _getParameters()
+    {
+        global $argv;
+        
+        if (PHP_SAPI == 'cli') {
+            array_shift($argv);
+            foreach ($argv as $arg) {
+                $split = explode('=', $arg);
+                if (!isset($split[1])) {
+                    $this->_callParams[$split[0]] = 1;
+                } else {
+                    $this->_callParams[$split[0]] = $split[1];
+                }
+            }
+        } else {
+            $this->_callParams = $_GET;
+        }
+        // Checking for some important default values
+        if (!isset($this->_callParams['version'])) {
+            $this->_callParams['version'] = DEFAULT_VERSION;
+        }
+        if (!isset($this->_callParams['maxcards'])) {
+            $this->_callParams['maxcards'] = MAX_CARDS;
+        }
+        if (!isset($this->_callParams['sizes'])) {
+            $this->_callParams['sizes'] = DEFAULT_SIZES;
+        }
+        $this->_callParams['sizes'] = explode(',', $this->_callParams['sizes']);
     }
 
     /**
@@ -107,7 +145,8 @@ class CardGenerator {
      * It will stops when all cards are generated or MAX_CARDS is got
      * @param array $cardIdList Array of card IDs. If null, all cards are generated
      */
-    private function _startCardList($cardIdList = null) {
+    private function _startCardList($cardIdList = null)
+    {
         // Start with parsing the JSON
         $this->_cardsJsonToArray();
 
@@ -120,8 +159,8 @@ class CardGenerator {
             if ($this->_generateGwentCard($cardId)) {
                 $generatedCards++;
             }
-            if ($generatedCards >= MAX_CARDS) {
-                $this->_echoFlush(" [v] Max numbers of cards achieved (" . MAX_CARDS . ")");
+            if ($generatedCards >= $this->_callParams['maxcards']) {
+                $this->_echoFlush(" [v] Max numbers of cards achieved (" . $this->_callParams['maxcards'] . ")");
                 break;
             }
         }
@@ -134,15 +173,16 @@ class CardGenerator {
     /**
      * Generate a Gwent card
      * @param int $cardId Game ID of the card to generate
-     * @return
+     * @return bool Return false in case of error
      */
-    private function _generateGwentCard($cardId) {
+    private function _generateGwentCard($cardId)
+    {
         if (empty($this->_cardsJson[$cardId])) {
             $this->_echoFlush(" [x] Card ID " . $cardId . " not found");
             $this->_errors++;
             return false;
         }
-        if ($this->_cardsJson[$cardId]['released'] != 1) {
+        if ($this->_cardsJson[$cardId]['released'] != 1 && !isset($this->_callParams['force_released'])) {
             $this->_echoFlush(" [x] Card ID " . $cardId . " has not been released");
             $this->_notReleased++;
             return false;
@@ -162,11 +202,11 @@ class CardGenerator {
     }
 
     /**
-     *
-     * @param type $customDatas
+     * Generate a custom card
      */
-    private function _generateCustomCard($customDatas) {
-        $cardDatas = $this->_formatCustomCardDatas($customDatas);
+    private function _generateCustomCard()
+    {
+        $cardDatas = $this->_formatCustomCardDatas($this->_callParams);
         try {
             $microtime = microtime(true);
             $this->_generateCardImagick($cardDatas, true);
@@ -178,24 +218,11 @@ class CardGenerator {
     }
 
     /**
-     * Display an output message
-     * @param type $message
-     */
-    private function _echoFlush($message) {
-        echo $message;
-        if (PHP_SAPI == 'cli') {
-            echo PHP_EOL;
-        } else {
-            echo '<br>';
-        }
-        ob_flush();
-    }
-
-    /**
      * Parse the JSON file to use a PHP array
      * @throws Exception
      */
-    private function _cardsJsonToArray() {
+    private function _cardsJsonToArray()
+    {
         $microtime = microtime(true);
         if (!file_exists(JSON_FILENAME)) {
             throw new Exception("JSON file not found");
@@ -225,7 +252,8 @@ class CardGenerator {
      * @param array $cardDatas Array from the JSON
      * @return array Datas formated to the essential
      */
-    private function _formatJsonCardDatas($cardDatas) {
+    private function _formatJsonCardDatas($cardDatas)
+    {
         switch ($cardDatas['faction']) {
             case "Northen Realms":
                 $faction = 'northernrealms';
@@ -281,7 +309,8 @@ class CardGenerator {
      * @param type $customParams
      * @return type
      */
-    private function _formatCustomCardDatas($customParams) {
+    private function _formatCustomCardDatas($customParams)
+    {
         $customDatas = [
             'filename' => 'default.png',
             'faction' => 'neutral',
@@ -292,23 +321,10 @@ class CardGenerator {
             'spy' => false,
             'count' => null,
         ];
-
-        // Passed arguments override the previous default values
-        if (PHP_SAPI == 'cli') {
-            for ($i = 0; $i < sizeof($customParams); $i++) {
-                // CLI params are like `strength=9`
-                if (strpos($customParams[$i], '=')) {
-                    $param = explode('=', $customParams[$i]);
-                    if (isset($customDatas[$param[0]])) {
-                        $customDatas[$param[0]] = $param[1];
-                    }
-                }
-            }
-        } else {
-            foreach ($customDatas as $key => $v) {
-                if (isset($customParams[$key])) {
-                    $customDatas[$key] = $customParams[$key];
-                }
+        
+        foreach ($customDatas as $key => $v) {
+            if (isset($customParams[$key])) {
+                $customDatas[$key] = $customParams[$key];
             }
         }
 
@@ -321,26 +337,15 @@ class CardGenerator {
         return $customDatas;
     }
 
-    /**
-     * Add a composite image on the current generated image
-     * @param string $stepName Name of the current step
-     * @param string $stepFile Path to the file to the current step
-     * @throws Exception
-     */
-    private function _composeImage($stepName, $stepFile) {
-        $compose = new Imagick();
-        if ($compose->readImage($stepFile) !== true) {
-            throw new Exception($stepName . " not found");
-        }
-        $this->_card->compositeImage($compose, Imagick::COMPOSITE_DEFAULT, 0, 0);
-    }
+    
 
     /**
      * Card generation
      * @param array $cardDatas Datas of the card
      * @throws Exception
      */
-    private function _generateCardImagick($cardDatas, $custom = false) {
+    private function _generateCardImagick($cardDatas, $custom = false)
+    {
         $this->_card = new Imagick();
         if ($this->_card->readImage(ASSETS_FOLDER . DS . 'image_layout.png') !== true) {
             throw new Exception("Layout not found");
@@ -390,7 +395,7 @@ class CardGenerator {
          * - Strength is two digits and there is no 1
          * When there is a 1 with another digit, each needs to be closer to the other (1 is thin)
          */
-        if (is_int($cardDatas['strength']) && $cardDatas['strength'] > 0) { // Events are 0 or absent
+        if (is_numeric($cardDatas['strength']) && $cardDatas['strength'] > 0) { // Events are 0 or absent
             if ($cardDatas['strength'] < 10) {
                 $strength = new Imagick();
                 if ($strength->readImage(ASSETS_FOLDER . DS . 'symbols' . DS . 'strength' . DS . 'number' . $cardDatas['strength'] . '.png') !== true) {
@@ -450,7 +455,7 @@ class CardGenerator {
         if ($cardDatas['count']) {
             // adding the hourglass
             $count = new Imagick();
-            if (FALSE === $count->readImage(ASSETS_FOLDER . DS . 'symbols' . DS . 'effects' . DS . 'countdown.png')) {
+            if ($count->readImage(ASSETS_FOLDER . DS . 'symbols' . DS . 'effects' . DS . 'countdown.png') !== true) {
                 throw new Exception("Countdown not found");
             }
             $count->resizeimage(192, 192, RESIZE_FILTER, 1);
@@ -458,7 +463,7 @@ class CardGenerator {
 
             // adding the number
             $turns = new Imagick();
-            if (FALSE === $turns->readImage(ASSETS_FOLDER . DS . 'symbols' . DS . 'strength' . DS . 'number' . $cardDatas['count'] . '.png')) {
+            if ($turns->readImage(ASSETS_FOLDER . DS . 'symbols' . DS . 'strength' . DS . 'number' . $cardDatas['count'] . '.png') !== true) {
                 throw new Exception("Turn number not found");
             }
             $turns->resizeimage(121, 183, RESIZE_FILTER, 1);
@@ -477,20 +482,41 @@ class CardGenerator {
         $this->_card->resizeimage(1850, 2321, RESIZE_FILTER, 1);
 
         $newApiCard = new Imagick();
-        // The original version doesn't use the generateCardFile() function
-        // It needs to be placed on a bigger layout to add the same transparent
-        // margins as the official source
         $newApiCard->newImage(2186, 2924, new ImagickPixel("rgba(250,15,150,0)"));
         $newApiCard->compositeImage($this->_card, Imagick::COMPOSITE_DEFAULT, 164, 330);
-        $newApiCard->setImageFileName($cardsDestination . 'original.png');
-        if (FALSE == $newApiCard->writeImage()) {
-            throw new Exception("Original copy error");
+        
+        // Note : I prefer to check the size 5 times here than put it into the function,
+        // so it can be used for possible alternative sizes in the future
+        if (in_array('original', $this->_callParams['sizes'])) {
+            $this->_generateCardFile($newApiCard, $cardsDestination, 'original', 2186, 2924);
         }
-
-        $this->_generateCardFile($newApiCard, $cardsDestination, 'high', 1093, 1462);
-        $this->_generateCardFile($newApiCard, $cardsDestination, 'medium', 547, 731);
-        $this->_generateCardFile($newApiCard, $cardsDestination, 'low', 274, 366);
-        $this->_generateCardFile($newApiCard, $cardsDestination, 'thumbnail', 137, 183);
+        if (in_array('high', $this->_callParams['sizes'])) {
+            $this->_generateCardFile($newApiCard, $cardsDestination, 'high', 1093, 1462);
+        }
+        if (in_array('medium', $this->_callParams['sizes'])) {
+            $this->_generateCardFile($newApiCard, $cardsDestination, 'medium', 547, 731);
+        }
+        if (in_array('low', $this->_callParams['sizes'])) {
+            $this->_generateCardFile($newApiCard, $cardsDestination, 'low', 274, 366);
+        }
+        if (in_array('thumbnail', $this->_callParams['sizes'])) {
+            $this->_generateCardFile($newApiCard, $cardsDestination, 'thumbnail', 137, 183);
+        }
+    }
+    
+    /**
+     * Add a composite image on the current generated image
+     * @param string $stepName Name of the current step
+     * @param string $stepFile Path to the file to the current step
+     * @throws Exception
+     */
+    private function _composeImage($stepName, $stepFile)
+    {
+        $compose = new Imagick();
+        if ($compose->readImage($stepFile) !== true) {
+            throw new Exception($stepName . " not found");
+        }
+        $this->_card->compositeImage($compose, Imagick::COMPOSITE_DEFAULT, 0, 0);
     }
 
     /**
@@ -502,10 +528,11 @@ class CardGenerator {
      * @param int $height New height of the card
      * @throws Exception
      */
-    private function _generateCardFile($image, $imagePath, $size, $width, $height) {
+    private function _generateCardFile($image, $imagePath, $size, $width, $height)
+    {
         $image->resizeimage($width, $height, RESIZE_FILTER, 1);
         $image->setImageFileName($imagePath . $size . '.png');
-        if (FALSE == $image->writeImage()) {
+        if ($image->writeImage() !== true) {
             throw new Exception(ucfirst($size) . " copy error");
         }
     }
