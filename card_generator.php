@@ -9,7 +9,7 @@
  * be change manually when needed
  *
  * Example of command-line call :   php card_generator.php
- *                                  php card_generator.php cards 152101,152102,152103
+ *                                  php card_generator.php cards=152101,152102,152103
  *
  * Example of http call :           localhost/card_generator/card_generator.php
  *                                  localhost/card_generator/card_generator.php?cards=152101,152102,152103
@@ -134,6 +134,9 @@ class CardGenerator
         if (!isset($this->_callParams['maxcards'])) {
             $this->_callParams['maxcards'] = MAX_CARDS;
         }
+        if (!isset($this->_callParams['json'])) {
+            $this->_callParams['json'] = JSON_FILENAME;
+        }
         if (!isset($this->_callParams['sizes'])) {
             $this->_callParams['sizes'] = DEFAULT_SIZES;
         }
@@ -224,13 +227,13 @@ class CardGenerator
     private function _cardsJsonToArray()
     {
         $microtime = microtime(true);
-        if (!file_exists(JSON_FILENAME)) {
+        if (!file_exists($this->_callParams['json'])) {
             throw new Exception("JSON file not found");
         }
         // json_decode is too slow getting all the datas in memory
         // The streaming listener is faster
         $listener = new \JsonStreamingParser\Listener\InMemoryListener();
-        $stream = fopen(JSON_FILENAME, 'r');
+        $stream = fopen($this->_callParams['json'], 'r');
         try {
             $parser = new JsonStreamingParser\Parser($stream, $listener);
             $parser->parse();

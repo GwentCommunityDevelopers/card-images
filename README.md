@@ -26,6 +26,7 @@ You can also specify those optional parameters :
   - **maxcards** (default : 5) : Maximum cards to be generated before the script stops. Generating all Gwent cards with all the sizes can take hours, keep that in mind when you increase this number. Not-generated cards (not released, error during the generation...) are not counted.
   - **sizes** (default : original,high,medium,low,thumbnail) : Generated sizes. If you don't need all sizes, you can remove some and make the script faster. To give an idea, when the script takes 20 seconds to generate a card (depending of the hardware), 13 seconds are needed to generate the original size, 4 seconds for the high size, 1 second for the medium size, less than 1 second for low and thumbnail size. So by removing the original size it takes only 1/3 of the time.
   - **force_released** (optional) : Force the generation of the card even if the card isn't released according to JSON (still, if the card isn't released, the artwork may not exist). If given, must be `1`.
+  - **json** (default : cards.json) : Filename containing the Gwent-data JSON
 
 Each parameter must be given as `parameter=value`.
 Each card will be generated in the `images/**GWENT_VERSION**/**CARD_ID**/**VARIATION_ID**/` folder, with 4 different size versions (original, high, medium, low, thumbnail).
